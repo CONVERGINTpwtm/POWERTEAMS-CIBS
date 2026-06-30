@@ -440,7 +440,16 @@ function rowsToData(rows){
     pm:String(r[cPM]||'—').trim()||'—',
     terms:r[cTerms]||'',
     forecast:Number(r[cForecast])||0,
-    semana: overrides[String(r[cCode]||'').trim()] || String(cSem?r[cSem]:'' || '').trim(),
+    semana:(function(){
+      var code=String(r[cCode]||'').trim();
+      // Prioridade 1: override salvo manualmente no dashboard
+      if(overrides[code]) return overrides[code];
+      // Prioridade 2: valor preenchido na coluna Semana do Excel — pré-seleciona o campo editável
+      var excelSem=String(cSem&&r[cSem]!=null?r[cSem]:'').trim();
+      if(excelSem) return excelSem;
+      // Sem valor no Excel: deixa em branco para edição manual no dashboard
+      return '';
+    })(),
     status:String(cStatus?r[cStatus]:'' || '').trim(),
   }));
 }
@@ -455,7 +464,10 @@ function handleFile(file){
       const wb=XLSX.read(e.target.result,{type:'array',cellDates:true});
       const sheetName=wb.SheetNames.find(s=>s.toLowerCase().includes('billing_forecast')||s.toLowerCase().includes('billing forecast'))||wb.SheetNames[0];
       const ws=wb.Sheets[sheetName];
-      const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
+      // Detecta automaticamente a primeira linha não vazia para usar como cabeçalho
+      const allRaw=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+      const headerIdx=allRaw.findIndex(r=>r.some(c=>String(c).trim()!==''));
+      const rows=headerIdx<0?[]:XLSX.utils.sheet_to_json(ws,{defval:'',range:headerIdx});
       if(!rows.length){setStatus('❌ Planilha vazia ou sem dados reconhecidos.','err');return;}
 
       const parsed=rowsToData(rows);
