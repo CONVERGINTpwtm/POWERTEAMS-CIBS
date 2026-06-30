@@ -164,6 +164,7 @@ tbody tr:hover{background:var(--bg3)}
     <span class="tb-tag" id="fileTag">nenhum arquivo</span>
     <span class="tb-sync" id="syncStatus" style="display:none"><span class="sync-dot sync-ok"></span>Sincronizado com a planilha</span>
     <button class="imp-btn" onclick="openImportModal()">⭱ Importar Excel</button>
+    <button class="theme-btn" id="btnClearCache" onclick="clearCacheAndReload()" style="display:none" title="Remove dados do último import e busca do Google Sheets">🔄 Atualizar Sheets</button>
     <button class="theme-btn" onclick="exportBillingPDF()">🖨 Relatório PDF</button>
     <button class="theme-btn" id="themeBtn" onclick="toggleTheme()">🌙 Escuro</button>
   </div>
@@ -238,7 +239,7 @@ tbody tr:hover{background:var(--bg3)}
 <div class="overlay" id="importOverlay" onclick="closeImportModal(event)">
   <div class="modal">
     <h2>Importar Billing Forecast</h2>
-    <p>Selecione o arquivo .xlsx exportado (aba <b>Billing_forecast</b>). A coluna <b>Semana</b> pode ser editada depois, diretamente no dashboard.</p>
+    <p>Selecione o arquivo .xlsx exportado (aba <b>Billing_forecast</b>). Se a coluna <b>Semana</b> estiver preenchida no Excel, será importada automaticamente. Caso contrário, pode ser editada diretamente no dashboard.</p>
     <div class="uz" id="uploadZone" onclick="document.getElementById('fileInput').click()">
       Arraste o arquivo aqui ou clique para selecionar
       <input type="file" id="fileInput" accept=".xlsx,.xls" style="display:none" onchange="handleFile(this.files[0])">
@@ -360,7 +361,6 @@ function loadFromGoogleSheets(manual){
 
 if(GS_WEB_APP_URL){
   loadFromGoogleSheets(false);
-  // Atualiza sozinho a cada 5 minutos para manter todo mundo com dados em dia
   gsAutoRefreshTimer=setInterval(()=>loadFromGoogleSheets(false),5*60*1000);
 }
 
@@ -454,6 +454,27 @@ function rowsToData(rows){
   }));
 }
 
+function syncExcelToSheets(rows){
+  // Envia todas as linhas do Excel para o Apps Script gravar na planilha
+  setSyncStatus('syncing');
+  fetch(GS_WEB_APP_URL,{
+    method:'POST',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body:JSON.stringify({action:'syncAll', rows:rows})
+  })
+  .then(r=>r.json())
+  .then(json=>{
+    if(!json.ok)throw new Error(json.error||'Falha ao sincronizar planilha');
+    setSyncStatus('ok');
+    showToast('✓ Google Sheets atualizado com os dados do Excel');
+  })
+  .catch(err=>{
+    console.error(err);
+    setSyncStatus('error','Erro ao gravar no Sheets: '+err.message);
+    showToast('⚠️ Dados importados no dashboard, mas erro ao gravar no Sheets');
+  });
+}
+
 function handleFile(file){
   if(!file)return;
   if(!file.name.match(/\.xlsx?$/i)){setStatus('❌ Formato inválido. Use um arquivo .xlsx','err');return;}
@@ -482,6 +503,8 @@ function handleFile(file){
       renderAll();
       showToast('✓ '+DATA.length+' projetos importados');
       setTimeout(closeImportModal,700);
+      // Envia os dados para o Google Sheets para manter a planilha atualizada
+      if(GS_WEB_APP_URL) syncExcelToSheets(rows);
     }catch(err){
       console.error(err);
       setStatus('❌ Erro ao ler o arquivo: '+err.message,'err');
